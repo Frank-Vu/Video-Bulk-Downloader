@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+  <symbol id="download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/></symbol>
+  <symbol id="retry" viewBox="0 0 24 24"><path d="M4 10a8 8 0 1 1 1 7M4 3v7h7"/></symbol>
+  <symbol id="cancel" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 8 8 8m0-8-8 8"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
+  <symbol id="clear" viewBox="0 0 24 24"><path d="m4 14 9-11 8 7-9 11H7l-3-3zm4-5 8 7M12 21h9"/></symbol>
+  <symbol id="export" viewBox="0 0 24 24"><path d="M14 3h7v7m-1-6-10 10M10 4H4v16h16v-6"/></symbol>
+  <symbol id="import" viewBox="0 0 24 24"><path d="M6 8V2h8l6 6v14H6v-6M14 2v6h6M2 12h12m-4-4 4 4-4 4"/></symbol>
+</svg>

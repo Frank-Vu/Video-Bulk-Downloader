@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Bulk Downloader</title>
+  <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+  <link rel="stylesheet" href="app.css?v=settings-tools-7">
+</head>
+
+<body>
+  <main class="page">
+    <header class="app-header">
+      <img src="icons/icon-48.png" alt="" width="44" height="44">
+      <h1>Video Bulk Downloader</h1>
+      <button id="open-settings" class="secondary icon-button" type="button" title="Settings" aria-label="Settings"
+        aria-haspopup="dialog" aria-controls="settings-dialog" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+          class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+          stroke-linejoin="round" aria-hidden="true" focusable="false">
+          <path
+            d="M9.3 3h5.4l.5 2.2 1.4.8 2.2-.7 2.7 4.7-1.7 1.5v1.6l1.7 1.5-2.7 4.7-2.2-.7-1.4.8-.5 2.2H9.3l-.5-2.2-1.4-.8-2.2.7-2.7-4.7 1.7-1.5v-1.6L2.5 9.5l2.7-4.7 2.2.7 1.4-.8L9.3 3Z">
+          </path>
+          <circle cx="12" cy="12" r="3"></circle>
+        </svg></button>
+    </header>
+
+    <section class="card input-card">
+      <div id="permission-banner" class="banner warning" hidden>
+        <p>Site access is required to find video links.</p>
+        <button id="grant-access" class="primary" type="button">Grant site access</button>
+      </div>
+      <label class="field-label" for="urls">Video page URLs</label>
+      <textarea id="urls" spellcheck="false" placeholder="https://www.the-site.com/video_url"></textarea>
+      <div class="toolbar">
+        <button id="find" class="primary labeled" title="Find links for pasted URLs" aria-label="Find links"
+          disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="10.5" cy="10.5" r="6.5"></circle>
+            <path d="m16 16 5 5"></path>
+          </svg><span class="btn-label">Find links</span></button>
+        <button id="clear" class="secondary icon-button" title="Clear pasted links" aria-label="Clear pasted links"
+          disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon" fill="none" stroke="currentColor"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m4 14 9-11 8 7-9 11H7l-3-3zm4-5 8 7M12 21h9"></path>
+          </svg></button>
+        <label class="inline-field">Quality max
+          <select id="quality-max" aria-label="Maximum video quality">
+            <option value="0">No limit</option>
+            <option value="2160">2160p</option>
+            <option value="1440">1440p</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+          </select>
+        </label>
+        <label class="inline-field">Codec
+          <select id="codec-pref" aria-label="Preferred codec at same quality">
+            <option value="AV1">AV1</option>
+            <option value="H.264">H.264</option>
+          </select>
+        </label>
+      </div>
+      <p id="message" class="hint" role="status"></p>
+      <div id="import-status" class="import-status" role="status" aria-live="polite" hidden>
+        <span id="import-status-text"></span>
+        <progress id="import-progress" aria-label="Import progress"></progress>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-header">
+        <h2>Found videos</h2>
+        <div class="section-tools">
+          <button id="manage-name-tags" class="secondary" type="button" title="Manage reusable author and channel tags"
+            disabled>Reusable tags</button>
+          <button id="download" class="primary labeled" title="Download selected found videos"
+            aria-label="Download selected" disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon"
+              fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+              aria-hidden="true" focusable="false">
+              <path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"></path>
+            </svg><span class="btn-label">Download selected</span></button>
+          <button id="cancel-selected" class="secondary icon-button"
+            title="Cancel selected videos that are not downloading" aria-label="Cancel selected found videos"
+            disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon" fill="none"
+              stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              focusable="false">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="m8 8 8 8m0-8-8 8"></path>
+            </svg></button>
+          <button id="remove-selected" class="secondary danger icon-button"
+            title="Remove selected videos that are not downloading" aria-label="Remove selected found videos"
+            disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon" fill="none"
+              stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              focusable="false">
+              <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"></path>
+            </svg></button>
+          <select id="found-format" aria-label="Found videos file format">
+            <option value="json">JSON</option>
+            <option value="txt">TXT</option>
+          </select>
+          <button id="export-found" class="secondary icon-button" title="Export found videos"
+            aria-label="Export found videos" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+              class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M14 3h7v7m-1-6-10 10M10 4H4v16h16v-6"></path>
+            </svg></button>
+          <button id="import-found" class="secondary icon-button" title="Import found videos"
+            aria-label="Import found videos" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+              class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M6 8V2h8l6 6v14H6v-6M14 2v6h6M2 12h12m-4-4 4 4-4 4"></path>
+            </svg></button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <input id="found-search" type="search" placeholder="Search title, file name, or URL"
+          aria-label="Search found videos">
+        <select id="found-status" aria-label="Filter found videos by status">
+          <option value="all">All statuses</option>
+          <option value="finding">Finding</option>
+          <option value="ready">Ready</option>
+          <option value="queued">Queued</option>
+          <option value="downloading">Downloading</option>
+          <option value="cancelling">Cancelling</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="failed">Failed</option>
+          <option value="error">Error</option>
+          <option value="done">Saved</option>
+        </select>
+        <select id="found-sort" aria-label="Sort found videos">
+          <option value="default">Default order</option>
+          <option value="title-asc">Title A–Z</option>
+          <option value="quality-desc">Quality high to low</option>
+          <option value="quality-asc">Quality low to high</option>
+        </select>
+      </div>
+      <p id="found-import-status" class="section-import-status" hidden></p>
+      <p id="found-selection-hint" class="hint selection-hint" hidden></p>
+      <div class="select-bar" data-select-bar="found">
+        <label class="select-all-compact"><input id="select-all-compact" type="checkbox"
+            aria-label="Select all filtered found videos"> Select all filtered</label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input id="select-all" type="checkbox" aria-label="Select all filtered found videos"
+                  title="Select all filtered found videos" disabled></th>
+              <th>Title</th>
+              <th>Quality</th>
+              <th>File name (without .mp4)</th>
+              <th>Progress / speed / remaining</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rows">
+            <tr class="empty">
+              <td colspan="7">No found videos.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="found-prev" class="secondary" type="button" disabled>Previous</button>
+        <span id="found-page-info" class="hint" role="status"></span>
+        <button id="found-next" class="secondary" type="button" disabled>Next</button>
+        <label class="inline-field">Per page
+          <select id="found-page-size" aria-label="Found videos per page">
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+      </div>
+    </section>
+    <section class="card saved-card">
+      <div class="section-header">
+        <h2>Saved videos</h2>
+        <div class="section-tools">
+          <button id="download-saved" class="primary labeled" title="Download selected saved videos again"
+            aria-label="Download selected saved videos again" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+              class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M4 10a8 8 0 1 1 1 7M4 3v7h7"></path>
+            </svg><span class="btn-label">Download selected</span></button>
+          <button id="remove-saved" class="secondary danger icon-button"
+            title="Remove selected saved entries that are not downloading" aria-label="Remove selected saved videos"
+            disabled><svg viewBox="0 0 24 24" width="18" height="18" class="action-icon" fill="none"
+              stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              focusable="false">
+              <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"></path>
+            </svg></button>
+          <select id="saved-format" aria-label="Saved videos file format">
+            <option value="json">JSON</option>
+            <option value="txt">TXT</option>
+          </select>
+          <button id="export-saved" class="secondary icon-button" title="Export saved videos"
+            aria-label="Export saved videos" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+              class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M14 3h7v7m-1-6-10 10M10 4H4v16h16v-6"></path>
+            </svg></button>
+          <button id="import-saved" class="secondary icon-button" title="Import saved videos"
+            aria-label="Import saved videos" disabled><svg viewBox="0 0 24 24" width="18" height="18"
+              class="action-icon" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+              stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M6 8V2h8l6 6v14H6v-6M14 2v6h6M2 12h12m-4-4 4 4-4 4"></path>
+            </svg></button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <input id="saved-search" type="search" placeholder="Search title, file name, or URL"
+          aria-label="Search saved videos">
+        <select id="saved-status" aria-label="Filter saved videos by status">
+          <option value="all">All statuses</option>
+          <option value="finding">Finding</option>
+          <option value="ready">Ready</option>
+          <option value="queued">Queued</option>
+          <option value="downloading">Downloading</option>
+          <option value="cancelling">Cancelling</option>
+          <option value="cancelled">Cancelled</option>
+          <option value="failed">Failed</option>
+          <option value="error">Error</option>
+          <option value="done">Saved</option>
+        </select>
+        <select id="saved-sort" aria-label="Sort saved videos">
+          <option value="default">Default order</option>
+          <option value="title-asc">Title A–Z</option>
+          <option value="quality-desc">Quality high to low</option>
+          <option value="quality-asc">Quality low to high</option>
+        </select>
+      </div>
+      <p id="saved-import-status" class="section-import-status" hidden></p>
+      <p id="saved-selection-hint" class="hint selection-hint" hidden></p>
+      <div class="select-bar" data-select-bar="saved">
+        <label class="select-all-compact"><input id="select-all-saved-compact" type="checkbox"
+            aria-label="Select all filtered saved videos"> Select all filtered</label>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input id="select-all-saved" type="checkbox" aria-label="Select all filtered saved videos"
+                  title="Select all filtered saved videos" disabled></th>
+              <th>Title / history</th>
+              <th>Quality</th>
+              <th>File name (without .mp4)</th>
+              <th>Progress / speed / remaining</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="saved-rows">
+            <tr class="empty">
+              <td colspan="7">No saved videos.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="saved-prev" class="secondary" type="button" disabled>Previous</button>
+        <span id="saved-page-info" class="hint" role="status"></span>
+        <button id="saved-next" class="secondary" type="button" disabled>Next</button>
+        <label class="inline-field">Per page
+          <select id="saved-page-size" aria-label="Saved videos per page">
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
+      </div>
+    </section>
+    <input id="import-file" type="file" accept=".json,.txt" hidden>
+    <dialog id="settings-dialog" class="name-dialog settings-dialog" aria-labelledby="settings-heading">
+      <div class="dialog-header settings-header">
+        <h2 id="settings-heading">Settings</h2>
+        <span id="session" class="settings-session"></span>
+      </div>
+      <div class="dialog-content">
+        <label class="toggle settings-option">
+          <input type="checkbox" id="ask">
+          Show save dialog for each file
+        </label>
+        <label class="inline-field settings-option">Concurrent downloads
+          <select id="concurrency" aria-label="Concurrent downloads"
+            title="Shared across normal and private windows; paused downloads keep a slot">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3" selected>3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+          </select>
+        </label>
+        <section class="settings-backup">
+          <h3>Backup</h3>
+          <div class="backup-tools">
+            <button id="export-backup" class="secondary" type="button"
+              title="Export all saved normal and private session data as JSON" disabled>Export full backup</button>
+            <button id="import-backup" class="secondary" type="button" disabled>Restore backup</button>
+            <input id="backup-file" type="file" accept=".json,application/json" hidden>
+          </div>
+        </section>
+        <p id="settings-message" class="hint" role="status"></p>
+      </div>
+      <div class="dialog-footer"><button id="settings-close" class="primary" type="button">Done</button></div>
+    </dialog>
+    <dialog id="backup-dialog" class="name-dialog" aria-labelledby="backup-heading">
+      <div class="dialog-header">
+        <h2 id="backup-heading">Restore full backup</h2>
+      </div>
+      <div class="dialog-content">
+        <p id="backup-summary"></p>
+        <p>Replaces all saved data in both normal and private sessions.</p>
+        <p class="hint">Video files and browser logins are not included. Downloads require an explicit retry.</p>
+        <p id="backup-error" class="hint" role="alert"></p>
+      </div>
+      <div class="dialog-footer">
+        <button id="backup-cancel" class="secondary" type="button">Cancel</button>
+        <button id="backup-restore" class="primary" type="button">Replace data and restore</button>
+      </div>
+    </dialog>
+    <dialog id="name-tags-dialog" class="name-dialog" aria-labelledby="name-tags-heading">
+      <div class="dialog-header">
+        <h2 id="name-tags-heading">Reusable name tags</h2>
+      </div>
+      <div class="dialog-content">
+        <section class="tag-section">
+          <h3>Authors</h3>
+          <form id="author-tag-form" class="tag-add-form">
+            <label class="visually-hidden" for="author-tag-input">New author tag</label>
+            <input id="author-tag-input" required maxlength="100" placeholder="Author name" autocomplete="off">
+            <button id="add-author-tag" class="secondary" type="submit">Add</button>
+          </form>
+          <div id="author-tag-library" class="tag-chips" aria-label="Reusable author tags"></div>
+        </section>
+        <section class="tag-section">
+          <h3>Channels</h3>
+          <form id="channel-tag-form" class="tag-add-form">
+            <label class="visually-hidden" for="channel-tag-input">New channel tag</label>
+            <input id="channel-tag-input" required maxlength="100" placeholder="Channel name" autocomplete="off">
+            <button id="add-channel-tag" class="secondary" type="submit">Add</button>
+          </form>
+          <div id="channel-tag-library" class="tag-chips" aria-label="Reusable channel tags"></div>
+        </section>
+        <div class="tag-file-tools" aria-label="Import and export reusable tags">
+          <label class="inline-field" for="name-tags-format">Tag file format
+            <select id="name-tags-format">
+              <option value="json">JSON</option>
+              <option value="txt">TXT</option>
+            </select>
+          </label>
+          <button id="export-name-tags" class="secondary" type="button">Export tags</button>
+          <button id="import-name-tags" class="secondary" type="button"
+            title="Merge tags from JSON or TXT. TXT uses [Authors] and [Channels] headings, with one name per line.">Import
+            tags</button>
+        </div>
+        <input id="name-tags-file" type="file" accept=".json,.txt" hidden>
+        <p id="name-tags-status" class="hint" role="status"></p>
+        <p id="name-tags-error" class="hint" role="alert"></p>
+      </div>
+      <div class="dialog-footer"><button id="name-tags-close" class="primary" type="button">Done</button></div>
+    </dialog>
+    <dialog id="rename-dialog" class="name-dialog" aria-labelledby="rename-heading">
+      <form id="rename-form" class="dialog-form">
+        <div class="dialog-header">
+          <h2 id="rename-heading">Choose filename tags</h2>
+        </div>
+        <div class="dialog-content">
+          <section class="tag-section">
+            <h3 title="Choose one or more">Authors</h3>
+            <div id="rename-author-chips" class="tag-chips" aria-label="Choose author tags"></div>
+          </section>
+          <section class="tag-section">
+            <h3 title="Choose one">Channel</h3>
+            <div id="rename-channel-chips" class="tag-chips" aria-label="Choose a channel tag"></div>
+          </section>
+          <div class="toolbar"><button id="rename-manage-tags" class="secondary" type="button">Manage reusable
+              tags</button></div>
+          <p class="hint">File name preview</p>
+          <output id="rename-preview"></output>
+          <p id="rename-error" class="hint" role="alert"></p>
+        </div>
+        <div class="dialog-footer">
+          <button id="rename-apply" class="primary" type="submit">Apply tags</button>
+          <button id="rename-cancel" class="secondary" type="button">Cancel</button>
+        </div>
+      </form>
+    </dialog>
+  </main>
+  <div id="thumbnail-preview" class="thumbnail-preview" role="tooltip" hidden>
+    <img id="thumbnail-image" alt="" referrerpolicy="no-referrer" hidden>
+    <span id="thumbnail-status" role="status">Loading thumbnail…</span>
+  </div>
+  <script src="shared.js?v=settings-tools-7"></script>
+  <script src="app.js?v=settings-tools-7"></script>
+</body>
+
+</html>
