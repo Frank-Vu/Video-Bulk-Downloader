@@ -2,7 +2,9 @@
 
 A Firefox extension for downloading videos in bulk. Paste video page links, check the quality and file names, then download.
 
-- Picks the highest resolution at or below your quality limit (unlimited by default; 2160p / 4K on most videos), preferring your codec choice (AV1 by default, H.264 optional) only at the same resolution. Each queued job captures its quality settings; changing the limit or codec affects future work, refreshes a ready link when needed, and never overwrites your edited file names. An unsatisfiable limit is reported explicitly so you can raise it and retry.
+The extension supports the single video site configured in `manifest.json` and `shared.js`. It accepts that site's video page URLs; it does not discover videos from arbitrary websites, channel pages, or playlist pages.
+
+- Picks the highest resolution at or below your quality limit (unlimited by default), preferring your codec choice (AV1 by default, H.264 optional) only at the same resolution. Available resolutions depend on the video and the page returned by the site. Each queued job captures its quality settings; changing the limit or codec affects future work, refreshes a ready link when needed, and never overwrites your edited file names. An unsatisfiable limit is reported explicitly so you can raise it and retry.
 - Lets you rename every file before it is saved.
 - Optional save dialog for each file, or direct saves into a folder.
 - Choose 1–10 concurrent downloads in Settings; the default is 3, shared across normal and private windows. Each file has its own status.
@@ -10,7 +12,7 @@ A Firefox extension for downloading videos in bulk. Paste video page links, chec
 - Downloads continue after closing the downloader tab. The queue and edited names are stored locally and restored when you reopen it.
 - Failed files can be selected and retried without replacing the table.
 - Cancel queued or active downloads individually, remove rows, and re-download saved entries from history.
-- Normal and private windows have separate pasted URLs, found lists, save settings, and history. The login session is detected automatically from the downloader tab.
+- Normal and private windows have separate pasted URLs, found lists, quality/save settings, tags, and history. The downloader tab's browsing mode determines the session used for video transfers; private page discovery runs without login cookies.
 - Found videos and saved history have separate sections, select-all checkboxes, pagination with search/filter/sort controls, and JSON/TXT import and export controls. Row actions use icons with tooltips and accessible labels, including pause, resume, and show-in-folder controls where available.
 - Reusable author and channel tags can be imported and exported as JSON or TXT. Hover or focus a video title in either section to preview its thumbnail.
 - Export and restore a full JSON backup of both sessions, including lists, saved history, drafts, tags, thumbnails, and settings.
@@ -20,8 +22,9 @@ A Firefox extension for downloading videos in bulk. Paste video page links, chec
 ## Requirements
 
 - Firefox 142 or newer (desktop)
-- Account for any site that required to download, logged in within the same Firefox profile when required. Downloads of 1080p and above may redirect to the login page when you are logged out.
-- If you log in in a private window, enable **Run in Private Windows → Allow** for this extension in Firefox's Add-ons Manager and open the downloader in that private window. Keep a private window open during the batch. No session checkbox is needed.
+- Video page URLs from the configured site, with site access granted to the extension.
+- When the site requires an account for a video or resolution, log in within the same Firefox profile and browsing mode used for the download. Private page discovery still runs without login cookies, so logging in privately does not unlock additional resolutions in its lookup results.
+- For private downloads, enable **Run in Private Windows → Allow** for this extension in Firefox's Add-ons Manager and open the downloader in a private window. Keep a private window open during the batch. No session checkbox is needed.
 
 ## Install
 
@@ -29,7 +32,7 @@ A Firefox extension for downloading videos in bulk. Paste video page links, chec
 
 Mozilla can sign this extension for **self-distribution (unlisted)**. It stays out of the public add-on store. See Mozilla's [signing overview](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/) and [self-distribution submission guide](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/#self-distribution).
 
-1. Package the extension with `npx web-ext build --ignore-files tests/** README.md`, or use the prepared ZIP in `web-ext-artifacts`. The ZIP must contain `manifest.json` at its root. Keep the add-on ID `video-bulk-downloader@local` when signing later versions.
+1. From the project root, package the current source with `npx web-ext build --ignore-files "tests/**" README.md` (Node.js 22+ for current `web-ext`). The generated unsigned ZIP is written to `web-ext-artifacts/`, which is ignored by Git; older local ZIPs may not match the current source. The ZIP must contain `manifest.json` at its root. Keep the add-on ID `video-bulk-downloader@local` when signing later versions.
 2. Sign in with a Mozilla account at the [Add-ons Developer Hub](https://addons.mozilla.org/developers/), choose **Submit a New Add-on**, then **On your own**.
 3. Upload the ZIP, follow validation and submission prompts, and wait for signing. This repository contains readable JavaScript; no compiled or minified source package is needed for these files. If you later add a build step or minified dependencies, follow the source-submission requirements.
 4. Download the **signed XPI** from the version details. Install that file in Firefox through `about:addons` → settings cog → **Install Add-on From File…** → **Add**. It then persists across browser restarts. See Mozilla's [install-from-file instructions](https://extensionworkshop.com/documentation/publish/install-self-distributed/).
@@ -39,21 +42,17 @@ Export a full backup before replacing a temporary installation. The unsigned ZIP
 
 ### Temporary development installation
 
-### Temporary (for development and testing)
-
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on…** and select `manifest.json` in this folder.
 3. Click the extension's toolbar icon to open the downloader tab.
 
 Firefox removes temporary add-ons when it closes, so load it again after a restart.
 
-### Permanent
-
-Firefox only keeps add-ons that are signed by Mozilla. Either submit the add-on to addons.mozilla.org as an unlisted add-on, or use Firefox Developer Edition or Nightly and set `xpinstall.signatures.required` to `false` in `about:config`.
+For unsigned installation outside the temporary loader, Firefox Developer Edition and Nightly support setting `xpinstall.signatures.required` to `false` in `about:config`. Standard Firefox release and beta require a signed extension; see Mozilla's [signing requirements](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/#signing-your-add-ons).
 
 ## Usage
 
-1. Paste one or more video page URLs, one per line. HTTP and non-`www` links are normalized to HTTPS. Repeated videos are combined, and invalid entries are reported with examples.
+1. Paste one or more video page URLs, one per line or separated by whitespace. Only the configured site's URLs with a `/video-…` path are accepted; links with credentials or non-default ports are rejected. HTTP and non-`www` links are normalized to HTTPS with `www`, and fragments are removed. Repeated videos are combined, and invalid entries are reported with examples.
 2. Click **Find links**. New videos are added to the existing table, which shows each title, the chosen quality, and an editable file name. Repeated URLs for the same video, including different playlist queries, do not create duplicate rows.
 3. Untick anything you don't want, and edit file names as needed.
 4. Click **Download selected** in the Found videos toolbar. Hover over row action icons to see their labels.
@@ -66,15 +65,17 @@ To retry a failed file, select it, check its name, and click **Download selected
 
 ### Site permission onboarding
 
-If site access is missing, click **Grant site access** in the banner above the URL box and accept Firefox's permission prompt. This is needed on older Firefox versions and whenever site access has been revoked. The extension checks access before fetching pages.
+If site access is missing or has been revoked, click **Grant site access** in the banner above the URL box and accept Firefox's permission prompt. The extension checks access before fetching pages.
 
 ### Quality settings
 
 Choose **Quality max** to limit resolution, or **No limit** for the highest available resolution. Choose **Codec** to prefer AV1 or H.264 when both are available at that resolution. Resolution takes priority over codec preference. If no rendition meets the limit, raise the limit and retry.
 
-Each queued job keeps the settings used when it was queued. Changing the settings affects future work. Ready links are refreshed when their quality settings change, and edited filenames are preserved.
+Each queued job keeps the settings used when it was queued. Changing the settings affects future work. A ready link whose captured quality settings differ is refreshed when you next queue its download, and edited filenames are preserved.
 
 Each row in **Found videos** and **Saved videos** also has a quality selector for its next download. Choose **Default** to follow Quality max, or choose a supported resolution from 480p upward to override it for that video. The extension reads all download renditions on the video page, including those above the global limit, and displays the highest available resolution. Older rows and imported saved entries have **Check qualities** to look up their available resolutions without downloading. Queued and active rows keep their captured settings; saved history retains the quality of each completed download. Fresh links are fetched when a new quality needs them.
+
+An explicit row resolution requests that exact height. If it is no longer available when links are refreshed, the row fails instead of silently downloading a lower resolution. Use **Check qualities** and select another resolution or **Default** before retrying. The filename is preserved when quality changes, so update any quality label you put in the name yourself.
 
 ### Rename helper
 
@@ -153,18 +154,22 @@ The previous shared list is migrated using each transfer's recorded session when
 
 ### Recovery and retries
 
-The background queue reconciles saved download IDs with Firefox when it restarts (see Troubleshooting). Firefox reassigns download IDs on restart and forgets which extension started each transfer, so each launch persists that transfer's exact identity (precise start time plus URL, browsing mode, and filename). A restored ID is trusted only against that fingerprint; a reused ID or a manual same-URL download (even a day later) is never adopted, and pause/cancel/resume never control an unverified transfer. Rows without that identity (pre-fix records) are handled conservatively: they are never matched by URL/time and never auto-launch a duplicate, instead requiring an explicit retry. Pending Save As dialogs wait indefinitely for their own creation event rather than any time window. Temporary video-page network errors, timeouts, and HTTP 408/429/5xx responses receive up to 3 attempts with a delay. Server retry instructions are respected; long requested delays are reported so you can retry later. Missing permissions, HTTP 401/403, page parsing errors, and unavailable quality limits require your attention. Cancelling a lookup also cancels its retry wait.
+The background queue reconciles saved transfers with Firefox when it restarts. Download IDs can change or be reused, so recovery verifies the saved precise start time, URL, browsing mode, and filename when available before adopting a transfer. An already verified transfer can update its recorded start time when Firefox resumes it in the current session. Older rows without a saved identity can be upgraded only when Firefox still identifies their transfer as belonging to this extension; otherwise, already-started work requires an explicit retry. Pending Save As dialogs wait for their own creation event without a timeout. Persisted lookups and queued work that had not launched can continue automatically after recovery.
+
+Temporary video-page network errors, timeouts, and HTTP 408/429/5xx responses receive up to 3 attempts. Each attempt has a 30-second timeout covering both the request and response body. Retries normally wait 400 ms, then 800 ms; a valid server `Retry-After` overrides this delay. A requested wait longer than 60 seconds is reported so you can retry later. Missing permissions, HTTP 401/403, page parsing errors, and unavailable quality limits require your attention. Cancelling a lookup also cancels its retry wait. Failed video transfers require an explicit retry and are not automatically restarted.
+
+If saved extension storage cannot be read, commands are blocked while the existing data is kept. Retry after resolving the storage issue. Failed draft or filename saves retain the pending edit in the open tab and block actions that need it until it can be saved.
 
 ### Save options
 
 | Option | Result |
 | --- | --- |
 | **Show save dialog for each file** on | Firefox's Save As dialog opens for each file, one at a time. Choose the folder there. |
-| Option off (default) | Files are saved straight to `Downloads\Video Bulk Downloads\` (or whichever folder is set under Firefox's *Settings → General → Downloads → Save files to*). Firefox's "Always ask" setting is not used. |
+| Option off (default) | Files are saved in the `Video Bulk Downloads` subfolder of Firefox's configured download directory (normally `Downloads\Video Bulk Downloads\`). Firefox's "Always ask" setting is not used. |
 
-File names default to `Title [2160p AV1].mp4`. If a file with the same name already exists, the new one gets a suffix such as `(1)`.
+File names initially use `Title [resolution codec].mp4`, such as `Title [2160p AV1].mp4`, based on the discovered link. You can edit the basename with or without `.mp4`; the downloader saves an `.mp4` file. If a file with the same name already exists, the new one gets a suffix such as `(1)`.
 
-Invalid filename characters and leading/trailing dots are removed or replaced. Empty basenames, including `.mp4`, are rejected before the batch starts. Windows device names are prefixed with an underscore.
+Invalid filename characters and leading/trailing dots are removed or replaced, whitespace is collapsed, and long basenames are truncated. Empty basenames, including `.mp4`, are rejected before the batch starts. Windows device names are prefixed with an underscore.
 
 ## Troubleshooting
 
@@ -173,11 +178,14 @@ Invalid filename characters and leading/trailing dots are removed or replaced. E
 | No download links found | You're not logged in to the site of the pasted video URL in this Firefox profile, or the site changed its page layout. |
 | No download links found on a private row | Private lookups send no login and read the public page only. Try the video in a normal window. |
 | No download links at or below Np | Your quality limit excludes every available rendition. Raise the limit or choose unlimited, then retry. |
+| Np is no longer available | The exact resolution selected for this row disappeared. Check qualities, choose another resolution or Default, then retry. |
 | Site permission is required | Grant the site access from the downloader's permission prompt (it must come from a direct click), then retry. |
-| N rejected / invalid URLs | Pasted text contained incorrect site's tokens. The find notice names the rejected count with bounded examples; only normalized site URLs are queued. |
+| N rejected / invalid URLs | Pasted text contained unsupported or malformed URLs. Use video page URLs from the configured site; the find notice includes bounded examples of rejected tokens. |
 | HTTP 403 or HTTP 429 | The site is blocking or rate-limiting requests. Wait a few minutes and try fewer links. |
 | Failed: … (on a download) | Check that you are still logged in, then retry the file. |
 | Received text/html instead of a video | A login or error page was downloaded. Log in in the same normal/private browsing mode as the downloader tab. The error identifies that session. The invalid file may remain in Downloads; it is not counted as saved. |
+| Previous download could not be verified in Firefox | The saved transfer identity no longer matches a unique Firefox download. Check Firefox's download list, then explicitly retry the row if needed. |
+| Storage read failed. Retry this action. | Saved extension data could not be read. Existing data is kept and commands are blocked; resolve the storage issue and retry. |
 
 Completed transfers are checked against their MIME type so HTML, JSON, and other obvious non-video responses are reported as failures. Servers that omit MIME metadata or declare generic binary content cannot be validated from this metadata alone.
 
@@ -189,26 +197,26 @@ The background queue reconciles saved download IDs with Firefox when it restarts
 video-bulk-downloader-firefox-extension/
 ├── manifest.json   Extension manifest (Manifest V3)
 ├── background.js   Owns discovery, the persistent queue, and download events
-├── shared.js       URL, filename, HTML parsing, quality options, pasted-URL parsing, draft keys, icons, and response validation
+├── shared.js       URL/HTML parsing, quality and filename helpers, tags, list/backup formats, and response validation
 ├── app.html        Downloader page
 ├── app.css         Styles (light and dark themes)
 ├── app.js          Displays queue state and sends commands to the background
 ├── tests/          Node tests using mocked Firefox APIs (regression plus per-area improvement suites)
-└── icons/          Extension icons: icon.svg (source) and PNG sizes
+└── icons/          Extension icon SVG/PNG assets and actions.svg (row icons are drawn inline)
 ```
 
 ## Development
 
 - There is no build step. Edit the files, then reload the add-on in `about:debugging`.
 - Syntax checks: `node --check shared.js`, `node --check background.js`, and `node --check app.js`.
-- Regression tests (Node.js 18+): `node --test tests/*.test.cjs`.
-- Optional, requires Node.js: `npx web-ext lint --ignore-files "tests/**"` runs Mozilla's add-on linter, and `npx web-ext run --ignore-files "tests/**"` launches Firefox with the add-on loaded and reloads it on changes. Use the same exclusion when packaging with `web-ext build`.
-- The declared minimum is Firefox 142, covering the manifest's data-consent metadata and site-permission API requirements in Mozilla's desktop and Android compatibility checks. Desktop Firefox is the supported installation target. The manifest keeps the `none` data-collection declaration. See [Mozilla's data-consent compatibility guidance](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/).
+- Tests (Node.js 18+): run `node --test` from the project root. Node discovers all `tests/*.test.cjs` suites without shell glob expansion. The suites use mocked Firefox APIs and DOM helpers; they cover queue recovery, transfer identity, private-session isolation, storage failures, quality selection, list/tag imports, backups, concurrency, and UI behavior. No dependency installation is needed to run them. Live site behavior and real Firefox dialogs still need browser verification.
+- Optional tooling: current `web-ext` 10 requires Node.js 22+. Run `npx web-ext lint --ignore-files "tests/**" README.md` for Mozilla's add-on linter, or `npx web-ext run --ignore-files "tests/**" README.md` to launch Firefox with the add-on loaded and reload it on changes. Run `npx web-ext build --ignore-files "tests/**" README.md` to package the current source. Add `--overwrite-dest` if deliberately replacing an existing ZIP for the same version. See the [web-ext command reference](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/).
+- The manifest declares Firefox 142 as the minimum and `none` for data collection. Desktop Firefox is the supported installation target. Mozilla's built-in data-consent metadata is supported from desktop Firefox 140 and Android Firefox 142; see [Mozilla's data-consent compatibility guidance](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/).
 
 ## Notes
 
-- Links are read from each video page's HTML (`#hd-porn-dload`). If any site changes that markup, `parseVideoPage` in `shared.js` needs updating. Quality choice is highest height at or below `maxHeight` (0 = unlimited), then `preferredCodec` (`AV1` default, `H.264` optional) at equal resolution; see `normalizeQualityOptions`.
+- Links are read from the configured site's video-page HTML (`#hd-porn-dload`) and must match its expected MP4 download path and origin. If that markup changes, `parseVideoPage` in `shared.js` needs updating. Quality choice is highest height at or below `maxHeight` (0 = unlimited), then `preferredCodec` (`AV1` default, `H.264` optional) at equal resolution; an explicit row choice uses `exactHeight`.
 - Pasted URLs are parsed with `parsePastedUrls(text)` into `{ urls, invalid, duplicateCount }`: whitespace-separated tokens are normalized, deduplicated by video ID, and rejected tokens are returned for bounded reporting.
 - Draft keys `downloaderDraft` / `privateDownloaderDraft` hold `{ input, inputRevision }` separately from the video lists. Row icons `pause`, `play`, and `folder` are drawn inline by `createActionIcon`.
-- Video transfers automatically use the downloader tab's normal or private Firefox session. Normal page discovery reads the site's public video-page HTML with the background page's normal session. Private discovery reads the same public HTML without cookies and without the HTTP cache, so your normal login is never sent for a private video. A logged-out view can list fewer resolutions, so a private row may pick a lower resolution than a normal row for the same video. Nothing is sent to other services.
-- The extension requests `downloads` and `storage`, with host access limited to sites set in this extension. Normal state uses `browser.storage.local`; private state uses `browser.storage.session` and is cleared when the last private window closes. Neither is synced or sent to an analytics service. The manifest declares no data collection for Mozilla's consent system.
+- Video transfers automatically use the downloader tab's normal or private Firefox session. Normal page discovery includes the background page's normal-session cookies. Private discovery omits cookies and bypasses the HTTP cache, including for quality and thumbnail lookups. A logged-out view can list fewer resolutions, so a private row may pick a lower resolution than a normal row for the same video. Requests for pages, previews, and media go to the configured site and its media hosts.
+- The extension requests `downloads` and `storage`, with host access limited to the configured site's HTTPS `www` origin. Normal state uses `browser.storage.local`; private state uses `browser.storage.session` and is cleared when the last private window closes. Neither is synced or sent to an analytics service. The manifest declares no data collection for Mozilla's consent system.
