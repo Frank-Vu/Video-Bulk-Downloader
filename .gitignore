@@ -1,3 +1,6 @@
+# Packaging output (npm run build)
+dist/
+
 # Firefox build output (web-ext build)
 web-ext-artifacts/
 *.xpi

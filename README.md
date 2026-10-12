@@ -1,6 +1,6 @@
 # Video Bulk Downloader
 
-A Firefox extension for downloading videos in bulk. Paste video page links, check the quality and file names, then download.
+A Chrome and Firefox extension for downloading videos in bulk. Paste video page links, check the quality and file names, then download. Both browser packages use the same application and queue logic.
 
 The extension supports the single video site configured in `manifest.json` and `shared.js`. It accepts that site's video page URLs; it does not discover videos from arbitrary websites, channel pages, or playlist pages.
 
@@ -21,18 +21,27 @@ The extension supports the single video site configured in `manifest.json` and `
 
 ## Requirements
 
-- Firefox 142 or newer (desktop)
+- Firefox 142 or newer, or Chrome 120 or newer (desktop).
 - Video page URLs from the configured site, with site access granted to the extension.
-- When the site requires an account for a video or resolution, log in within the same Firefox profile and browsing mode used for the download. Private page discovery still runs without login cookies, so logging in privately does not unlock additional resolutions in its lookup results.
-- For private downloads, enable **Run in Private Windows → Allow** for this extension in Firefox's Add-ons Manager and open the downloader in a private window. Keep a private window open during the batch. No session checkbox is needed.
+- When the site requires an account for a video or resolution, log in within the same browser profile and browsing mode used for the download. Private page discovery still runs without login cookies, so logging in privately does not unlock additional resolutions in its lookup results.
+- For private downloads, enable **Run in Private Windows → Allow** in Firefox's Add-ons Manager, or **Allow in Incognito** on the extension's details page in Chrome. Open the downloader from its toolbar icon in a private/incognito window, and keep a private window open during the batch.
 
 ## Install
 
-### Permanent installation without a public store listing
+### Chrome
+
+1. Install Node.js 18 or newer for the build tooling, then run `npm run build:chrome` from the project root. No dependency installation is needed for building or running unit tests.
+2. Open `chrome://extensions` and enable **Developer mode**.
+3. Click **Load unpacked** and select the generated `dist/chrome` directory.
+4. Click the extension's toolbar icon to open the downloader. Pin the icon if needed. For incognito downloads, open **Details**, enable **Allow in Incognito**, and use the icon from an incognito window.
+
+After editing the source, rebuild and click **Reload** on the extension's card. Chrome's unpacked installation persists across browser restarts. The generated Chrome ZIP is the package for a Chrome Web Store submission; it is not installed through **Load unpacked**. Store publication is a separate step.
+
+### Firefox: permanent installation without a public store listing
 
 Mozilla can sign this extension for **self-distribution (unlisted)**. It stays out of the public add-on store. See Mozilla's [signing overview](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/) and [self-distribution submission guide](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/#self-distribution).
 
-1. From the project root, package the current source with `npx web-ext build --ignore-files "tests/**" README.md` (Node.js 22+ for current `web-ext`). The generated unsigned ZIP is written to `web-ext-artifacts/`, which is ignored by Git; older local ZIPs may not match the current source. The ZIP must contain `manifest.json` at its root. Keep the add-on ID `video-bulk-downloader@local` when signing later versions.
+1. Run `npm run build:firefox` from the project root to generate the Firefox directory and unsigned ZIP under `dist/`. The ZIP contains `manifest.json` at its root. Keep the add-on ID `video-bulk-downloader@local` when signing later versions.
 2. Sign in with a Mozilla account at the [Add-ons Developer Hub](https://addons.mozilla.org/developers/), choose **Submit a New Add-on**, then **On your own**.
 3. Upload the ZIP, follow validation and submission prompts, and wait for signing. This repository contains readable JavaScript; no compiled or minified source package is needed for these files. If you later add a build step or minified dependencies, follow the source-submission requirements.
 4. Download the **signed XPI** from the version details. Install that file in Firefox through `about:addons` → settings cog → **Install Add-on From File…** → **Add**. It then persists across browser restarts. See Mozilla's [install-from-file instructions](https://extensionworkshop.com/documentation/publish/install-self-distributed/).
@@ -40,10 +49,10 @@ Mozilla can sign this extension for **self-distribution (unlisted)**. It stays o
 
 Export a full backup before replacing a temporary installation. The unsigned ZIP is for submission; use Mozilla's signed XPI for the permanent installation.
 
-### Temporary development installation
+### Firefox: temporary development installation
 
 1. Open `about:debugging#/runtime/this-firefox`.
-2. Click **Load Temporary Add-on…** and select `manifest.json` in this folder.
+2. Click **Load Temporary Add-on…** and select the root `manifest.json`, or build with `npm run build:firefox` and select `dist/firefox/manifest.json`.
 3. Click the extension's toolbar icon to open the downloader tab.
 
 Firefox removes temporary add-ons when it closes, so load it again after a restart.
@@ -61,11 +70,11 @@ The gear button on the right of the extension header opens **Settings**, with th
 
 You can close the tab while downloads run. The toolbar button reopens the saved table or focuses an existing downloader tab in the window it was clicked from. You can paste and find more links during downloads; existing finding, ready, queued, downloading, and saved entries remain in the table. Replacing or clearing the pasted text never removes rows or cancels transfers.
 
-To retry a failed file, select it, check its name, and click **Download selected**, or use its row's **Retry download** action. Retries fetch fresh links and preserve your filename. Retrying an interrupted transfer starts a new download; it does not resume partial bytes. Existing files are protected by Firefox's filename uniquifying behavior.
+To retry a failed file, select it, check its name, and click **Download selected**, or use its row's **Retry download** action. Retries fetch fresh links and preserve your filename. Retrying an interrupted transfer starts a new download; it does not resume partial bytes. Existing files are protected by the browser's filename uniquifying behavior.
 
 ### Site permission onboarding
 
-If site access is missing or has been revoked, click **Grant site access** in the banner above the URL box and accept Firefox's permission prompt. The extension checks access before fetching pages.
+If site access is missing or has been revoked, click **Grant site access** in the banner above the URL box and accept the browser's permission prompt. The extension checks access before fetching pages.
 
 ### Quality settings
 
@@ -106,20 +115,20 @@ Open **Settings** from the header gear and use **Concurrent downloads** to choos
 
 Use **Export full backup** in **Settings** to download all saved extension data from both normal and currently open private sessions: found/saved lists, complete history metadata, pasted drafts, filenames and selected tags, reusable author/channel libraries, thumbnail URLs, quality/codec/save-dialog settings, the concurrency setting, and saved import progress. Normal and private data remain separate in the backup. The export includes private data while that session exists, so keep the backup somewhere appropriate for that data. Data already cleared when the last private window closed cannot be recovered by a later export.
 
-Use **Restore backup**, choose a whole-extension JSON backup, review the summary, then click **Replace data and restore**. This replaces both sessions rather than merging them. It validates the entire file first and preserves the previous data if a storage write fails and rollback succeeds. If Firefox cannot write the rollback either, the error tells you to keep the backup and retry after resolving the storage problem. Backups are limited to 50 MiB; they can restore accumulated libraries larger than a single video-list import.
+Use **Restore backup**, choose a whole-extension JSON backup, review the summary, then click **Replace data and restore**. This replaces both sessions rather than merging them. It validates the entire file first and preserves the previous data if a storage write fails and rollback succeeds. If the browser cannot write the rollback either, the error tells you to keep the backup and retry after resolving the storage problem. Backups are limited to 50 MiB; they can restore accumulated libraries larger than a single video-list import, subject to browser storage capacity.
 
-Finish or cancel all lookups, queued downloads, and active transfers in both sessions before restoring. Restoring private data also requires an open private Firefox window and permission for the extension to run there. Restored private data goes into session storage and clears when the last private window closes.
+Finish or cancel all lookups, queued downloads, and active transfers in both sessions before restoring. Restoring private data also requires an open private/incognito window and permission for the extension to run there. Restored private data goes into session storage and clears when the last private window closes.
 
-Backups contain extension data; they do not contain downloaded video files, partial files, Firefox cookies/logins, browser permissions, or the extension's code. Restoring does not automatically start downloads or reconnect to old Firefox transfer IDs. Backed-up active, queued, and finding rows become cancelled rows that you can retry explicitly. History timestamps, filenames, sizes, and qualities remain available, but **Show in folder** needs a new locally verified transfer. A retry obtains fresh download links. Existing files remain on disk.
+Backups contain extension data; they do not contain downloaded video files, partial files, browser cookies/logins, browser permissions, or the extension's code. Restoring does not automatically start downloads or reconnect to old transfer IDs. Backed-up active, queued, and finding rows become cancelled rows that you can retry explicitly. History timestamps, filenames, sizes, and qualities remain available, but **Show in folder** needs a new locally verified transfer. A retry obtains fresh download links. Existing files remain on disk.
 
 ### List controls and history
 
 - **Clear pasted links** empties only the textarea. Pasted text is saved as you edit it, even before clicking Find links.
-- **Cancel** stops one active transfer or prevents a queued file from starting. Cancelled rows remain available for retry. If Firefox is still showing a Save As dialog, cancellation is requested and takes effect when that dialog is closed or the download ID becomes available.
-- **Remove** removes one row and its extension history. An active transfer is cancelled first. Downloaded files and Firefox's own download history are kept.
+- **Cancel** stops one active transfer or prevents a queued file from starting. Cancelled rows remain available for retry. If the browser is still showing a Save As dialog, cancellation is requested and takes effect when that dialog is closed or the download ID becomes available.
+- **Remove** removes one row and its extension history. An active transfer is cancelled first. Downloaded files and the browser's own download history are kept.
 - **Download again** re-downloads a saved row after fetching fresh links. Its previous saved timestamps and filenames remain in the row's history; repeated completion events do not create duplicate history records.
-- **Pause / resume** pauses or continues an active transfer. A paused transfer keeps its queue slot. Resume shows **Resuming…** until Firefox reports that the transfer is running; other rows and controls remain usable during that request. A rejected resume keeps the paused row retryable and shows an error there. An interrupted or failed transfer instead uses **Retry download**, which starts a new download.
-- **Show in folder** reveals a file from a successful local download while Firefox still lists it under the name recorded when it finished. Imported history cannot be revealed. If Firefox no longer matches a saved entry, that stale link is cleared and the file is not revealed.
+- **Pause / resume** pauses or continues an active transfer. A paused transfer keeps its queue slot. Resume shows **Resuming…** until the browser reports that the transfer is running; other rows and controls remain usable during that request. A rejected resume keeps the paused row retryable and shows an error there. An interrupted or failed transfer instead uses **Retry download**, which starts a new download.
+- **Show in folder** reveals a file from a successful local download while the browser still lists it under the name recorded when it finished. Imported history cannot be revealed. If the browser no longer matches a saved entry, that stale link is cleared and the file is not revealed.
 - Search, status filters, and sorting help navigate each section. Choose 50 or 100 videos per page. Selection is kept when changing pages or filters.
 - **Select all** selects every matching video across all pages in that section. Bulk actions affect selected videos matching the current filter, including other pages. A hint reports selections hidden by the filter. Exports always include the entire section.
 - Hover over a video's title, or focus its link with the keyboard, to preview its thumbnail in either section. Images load on demand; older entries look up their thumbnail on first use without starting a download or changing their filename or history. Missing images show an unavailable message. Escape, leaving the link, scrolling, or changing pages hides the preview. Click the title to open its page in a new tab in the same browsing mode.
@@ -148,13 +157,17 @@ Importing shows a loading indicator while reading the file, then a progress bar 
 
 Normal lists, drafts, and history are saved in local extension storage across browser restarts. Private lists use in-memory session storage and remain available across private windows and background-page reloads while a private window is open. Closing the last private window cancels remaining private jobs and clears its draft, list, settings, and history. Closing a normal window does not clear the private list while another private window remains open.
 
+In Chrome, if the incognito worker shuts down before reporting the last window's closure, background checks clear the memory-only leftovers after two unanswered probes. This can take about two minutes. Opening a new incognito session clears the previous session before its commands run.
+
 Pasted text and filename edits are saved after a short typing pause and before actions that need them. Draft text is stored separately so typing does not rewrite the whole video list. Existing drafts are migrated automatically.
 
 The previous shared list is migrated using each transfer's recorded session when available. Previously saved rows remain in the appropriate list as history; private data is removed from the normal storage entry.
 
 ### Recovery and retries
 
-The background queue reconciles saved transfers with Firefox when it restarts. Download IDs can change or be reused, so recovery verifies the saved precise start time, URL, browsing mode, and filename when available before adopting a transfer. An already verified transfer can update its recorded start time when Firefox resumes it in the current session. Older rows without a saved identity can be upgraded only when Firefox still identifies their transfer as belonging to this extension; otherwise, already-started work requires an explicit retry. Pending Save As dialogs wait for their own creation event without a timeout. Persisted lookups and queued work that had not launched can continue automatically after recovery.
+The background queue reconciles saved transfers with the browser when it restarts. Download IDs can change or be reused, so recovery verifies the saved precise start time, URL, browsing mode, and filename when available before adopting a transfer. An already verified transfer can update its recorded start time when Firefox resumes it in the current session. Older rows without a saved identity can be upgraded only when the browser still identifies their transfer as belonging to this extension; otherwise, already-started work requires an explicit retry. Pending Save As dialogs wait for their own creation event without a timeout. Persisted lookups and queued work that had not launched can continue automatically after recovery.
+
+In Chrome, a native transfer whose identity was not saved still reserves a concurrency slot until it finishes or is cancelled in the browser. Check the browser's download list before retrying an unverified row.
 
 Temporary video-page network errors, timeouts, and HTTP 408/429/5xx responses receive up to 3 attempts. Each attempt has a 30-second timeout covering both the request and response body. Retries normally wait 400 ms, then 800 ms; a valid server `Retry-After` overrides this delay. A requested wait longer than 60 seconds is reported so you can retry later. Missing permissions, HTTP 401/403, page parsing errors, and unavailable quality limits require your attention. Cancelling a lookup also cancels its retry wait. Failed video transfers require an explicit retry and are not automatically restarted.
 
@@ -164,8 +177,8 @@ If saved extension storage cannot be read, commands are blocked while the existi
 
 | Option | Result |
 | --- | --- |
-| **Show save dialog for each file** on | Firefox's Save As dialog opens for each file, one at a time. Choose the folder there. |
-| Option off (default) | Files are saved in the `Video Bulk Downloads` subfolder of Firefox's configured download directory (normally `Downloads\Video Bulk Downloads\`). Firefox's "Always ask" setting is not used. |
+| **Show save dialog for each file** on | The browser's Save As dialog opens for each file, one at a time. Choose the folder there. |
+| Option off (default) | Files are saved in the `Video Bulk Downloads` subfolder of the browser's configured download directory (normally `Downloads\Video Bulk Downloads\`). The extension requests direct saving. |
 
 File names initially use `Title [resolution codec].mp4`, such as `Title [2160p AV1].mp4`, based on the discovered link. You can edit the basename with or without `.mp4`; the downloader saves an `.mp4` file. If a file with the same name already exists, the new one gets a suffix such as `(1)`.
 
@@ -175,7 +188,7 @@ Invalid filename characters and leading/trailing dots are removed or replaced, w
 
 | Message | Likely cause |
 | --- | --- |
-| No download links found | You're not logged in to the site of the pasted video URL in this Firefox profile, or the site changed its page layout. |
+| No download links found | You're not logged in to the site of the pasted video URL in this browser profile, or the site changed its page layout. |
 | No download links found on a private row | Private lookups send no login and read the public page only. Try the video in a normal window. |
 | No download links at or below Np | Your quality limit excludes every available rendition. Raise the limit or choose unlimited, then retry. |
 | Np is no longer available | The exact resolution selected for this row disappeared. Check qualities, choose another resolution or Default, then retry. |
@@ -184,39 +197,49 @@ Invalid filename characters and leading/trailing dots are removed or replaced, w
 | HTTP 403 or HTTP 429 | The site is blocking or rate-limiting requests. Wait a few minutes and try fewer links. |
 | Failed: … (on a download) | Check that you are still logged in, then retry the file. |
 | Received text/html instead of a video | A login or error page was downloaded. Log in in the same normal/private browsing mode as the downloader tab. The error identifies that session. The invalid file may remain in Downloads; it is not counted as saved. |
-| Previous download could not be verified in Firefox | The saved transfer identity no longer matches a unique Firefox download. Check Firefox's download list, then explicitly retry the row if needed. |
+| Previous download could not be verified | The saved transfer identity no longer matches a unique browser download. Check the browser's download list, then explicitly retry the row if needed. |
 | Storage read failed. Retry this action. | Saved extension data could not be read. Existing data is kept and commands are blocked; resolve the storage issue and retry. |
 
 Completed transfers are checked against their MIME type so HTML, JSON, and other obvious non-video responses are reported as failures. Servers that omit MIME metadata or declare generic binary content cannot be validated from this metadata alone.
 
-The background queue reconciles saved download IDs with Firefox when it restarts. Downloads interrupted by a browser restart remain retryable. Removing or disabling the extension stops queue processing; Firefox also removes temporary add-ons at shutdown.
+The background queue reconciles saved download IDs with the browser when it restarts. Downloads interrupted by a browser restart remain retryable. Removing or disabling the extension stops queue processing; Firefox also removes temporary add-ons at shutdown.
 
 ## Project structure
 
 ```text
 video-bulk-downloader-firefox-extension/
-├── manifest.json   Extension manifest (Manifest V3)
+├── manifest.json   Firefox source manifest (Manifest V3)
+├── manifest.chrome.json Chrome-specific manifest overlay
+├── browser-compat.js Promise API and messaging compatibility
+├── platform.js     Browser-specific background operations and parsing
+├── service-worker.js Chrome background entry point
+├── chrome-bridge.js Chrome normal/incognito coordination in session storage
+├── offscreen.html / offscreen.js Chrome DOM parsing context
 ├── background.js   Owns discovery, the persistent queue, and download events
 ├── shared.js       URL/HTML parsing, quality and filename helpers, tags, list/backup formats, and response validation
 ├── app.html        Downloader page
 ├── app.css         Styles (light and dark themes)
 ├── app.js          Displays queue state and sends commands to the background
-├── tests/          Node tests using mocked Firefox APIs (regression plus per-area improvement suites)
+├── scripts/        Browser builds and real Chrome smoke checks
+├── tests/          Node regression and browser compatibility suites
+├── dist/           Generated browser directories and ZIPs (ignored by Git)
 └── icons/          Extension icon SVG/PNG assets and actions.svg (row icons are drawn inline)
 ```
 
 ## Development
 
-- There is no build step. Edit the files, then reload the add-on in `about:debugging`.
-- Syntax checks: `node --check shared.js`, `node --check background.js`, and `node --check app.js`.
-- Tests (Node.js 18+): run `node --test` from the project root. Node discovers all `tests/*.test.cjs` suites without shell glob expansion. The suites use mocked Firefox APIs and DOM helpers; they cover queue recovery, transfer identity, private-session isolation, storage failures, quality selection, list/tag imports, backups, concurrency, and UI behavior. No dependency installation is needed to run them. Live site behavior and real Firefox dialogs still need browser verification.
-- Optional tooling: current `web-ext` 10 requires Node.js 22+. Run `npx web-ext lint --ignore-files "tests/**" README.md` for Mozilla's add-on linter, or `npx web-ext run --ignore-files "tests/**" README.md` to launch Firefox with the add-on loaded and reload it on changes. Run `npx web-ext build --ignore-files "tests/**" README.md` to package the current source. Add `--overwrite-dest` if deliberately replacing an existing ZIP for the same version. See the [web-ext command reference](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/).
-- The manifest declares Firefox 142 as the minimum and `none` for data collection. Desktop Firefox is the supported installation target. Mozilla's built-in data-consent metadata is supported from desktop Firefox 140 and Android Firefox 142; see [Mozilla's data-consent compatibility guidance](https://extensionworkshop.com/documentation/develop/firefox-builtin-data-consent/).
+- Run `npm run build` to generate both browser packages, or `npm run build:chrome` / `npm run build:firefox` for one browser. Generated packages contain only runtime assets. Firefox development can also load the source manifest directly.
+- Tests (Node.js 18+): run `npm test` or `node --test`. The suites cover queue recovery, transfer identity, private-session isolation, storage failures, quality selection, list/tag imports, backups, concurrency, UI behavior, API compatibility, and packaging. No dependency installation is needed.
+- Real Chrome smoke checks: with Node.js 22+, OpenSSL, and [Chrome for Testing](https://googlechromelabs.github.io/chrome-for-testing/), set `CHROME_PATH` to the test browser executable and run `node scripts/chrome-smoke.cjs`. Set `OPENSSL_PATH` if OpenSSL is not on PATH. The script builds the Chrome extension, uses an isolated temporary browser profile and local HTTPS fixtures, checks normal/incognito discovery and cookie separation, full backups, global concurrency, worker recovery with the UI closed, and private cleanup. It never downloads from the live video site. Ordinary branded Chrome restricts extension-loading command-line flags, so use Chrome for Testing for automation.
+- Real Firefox smoke checks: set `FIREFOX_PATH` and `GECKODRIVER_PATH` to Firefox and [GeckoDriver](https://github.com/mozilla/geckodriver/releases), then run `node scripts/firefox-smoke.cjs`. It installs the generated package temporarily in a disposable headless profile and checks the UI, parser, normal/private drafts, full backups, and private cleanup without accessing the video site.
+- Optional Firefox tooling (Node.js 22+ for current `web-ext`): build first, then run `npx web-ext lint --source-dir dist/firefox` or `npx web-ext run --source-dir dist/firefox`. See the [web-ext command reference](https://extensionworkshop.com/documentation/develop/web-ext-command-reference/). Live-site behavior and native Save As dialogs still require manual verification in each browser.
+- Firefox retains its add-on ID and declares `none` for data collection. The Chrome package removes Gecko-only metadata, uses a Manifest V3 service worker, and declares Chrome 120 as the minimum.
 
 ## Notes
 
 - Links are read from the configured site's video-page HTML (`#hd-porn-dload`) and must match its expected MP4 download path and origin. If that markup changes, `parseVideoPage` in `shared.js` needs updating. Quality choice is highest height at or below `maxHeight` (0 = unlimited), then `preferredCodec` (`AV1` default, `H.264` optional) at equal resolution; an explicit row choice uses `exactHeight`.
 - Pasted URLs are parsed with `parsePastedUrls(text)` into `{ urls, invalid, duplicateCount }`: whitespace-separated tokens are normalized, deduplicated by video ID, and rejected tokens are returned for bounded reporting.
 - Draft keys `downloaderDraft` / `privateDownloaderDraft` hold `{ input, inputRevision }` separately from the video lists. Row icons `pause`, `play`, and `folder` are drawn inline by `createActionIcon`.
-- Video transfers automatically use the downloader tab's normal or private Firefox session. Normal page discovery includes the background page's normal-session cookies. Private discovery omits cookies and bypasses the HTTP cache, including for quality and thumbnail lookups. A logged-out view can list fewer resolutions, so a private row may pick a lower resolution than a normal row for the same video. Requests for pages, previews, and media go to the configured site and its media hosts.
+- Video transfers automatically use the downloader tab's normal or private browser session. Normal page discovery includes normal-session cookies. Private discovery omits cookies and bypasses the HTTP cache, including for quality and thumbnail lookups. A logged-out view can list fewer resolutions, so a private row may pick a lower resolution than a normal row for the same video. Requests for pages, previews, and media go to the configured site and its media hosts.
+- Chrome uses split incognito mode so the downloader can open in an incognito tab. A single normal worker owns both queues; the incognito worker relays commands and performs private browser operations through memory-only session storage. This keeps concurrency and full backups shared while private transfers use incognito cookies. Chrome parses fetched HTML in a packaged offscreen document and uses alarms to recover pending work after worker shutdown.
 - The extension requests `downloads` and `storage`, with host access limited to the configured site's HTTPS `www` origin. Normal state uses `browser.storage.local`; private state uses `browser.storage.session` and is cleared when the last private window closes. Neither is synced or sent to an analytics service. The manifest declares no data collection for Mozilla's consent system.
