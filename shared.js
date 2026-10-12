@@ -228,7 +228,7 @@ globalThis.VideoDownloader = (() => {
         codec: /-av1\.mp4$/i.test(url.pathname) ? "AV1" : "H.264"
       });
     }
-    if (!links.length) throw new Error("No download links found. Log in to the site in Firefox, then retry.");
+    if (!links.length) throw new Error("No download links found. Log in to the site in your browser, then retry.");
     const availableHeights = [...new Set(links.map((link) => link.height).filter((height) => height >= 480))]
       .sort((a, b) => b - a);
     const exactHeight = options?.exactHeight;

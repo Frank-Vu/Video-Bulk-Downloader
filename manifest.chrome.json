@@ -1,0 +1,11 @@
+{
+  "minimum_chrome_version": "120",
+  "incognito": "split",
+  "permissions": [
+    "offscreen",
+    "alarms"
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  }
+}

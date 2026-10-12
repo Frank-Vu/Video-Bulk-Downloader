@@ -2,6 +2,57 @@ const { CONCURRENCY, SUBFOLDER, STORAGE_KEY, PRIVATE_STORAGE_KEY } = VideoDownlo
 const DRAFT_STORAGE_KEY = VideoDownloader.DRAFT_STORAGE_KEY;
 const PRIVATE_DRAFT_STORAGE_KEY = VideoDownloader.PRIVATE_DRAFT_STORAGE_KEY;
 
+// The cross-browser runtime seam (platform.js, loaded first in the extension).
+// A direct fallback keeps this file self-contained where the seam is absent,
+// e.g. the Firefox test VMs: parse with the DOM parser here, serve both
+// sessions from one downloads API, and mirror the private window lifecycle.
+const platform = globalThis.VideoDownloaderPlatform ?? (() => {
+  const messages = {
+    privateAccess: "Allow this extension to run in private windows in Firefox's Add-ons Manager, then retry.",
+    privateWindow: 'Keep a private Firefox window open while downloading.',
+    downloadMissing: 'This download no longer exists. Retry this file.',
+    verifyFailed: 'Previous download could not be verified. Retry this file.',
+    checkDownloads: 'Could not check downloads. Retry this action.',
+    showUnsupported: 'Showing files is not supported in this browser.',
+    pauseUnsupported: 'Pausing downloads is not supported in this browser.',
+    resumeUnsupported: 'Resuming downloads is not supported in this browser.',
+    privateChannelLost: 'The private session did not answer. Keep a private window open, then retry.',
+    outcomeUnknown: "The private transfer could not be verified. Check the browser's downloads before retrying this file.",
+  };
+  return {
+    isChrome: false,
+    role: 'normal',
+    messages,
+    parsePage(text, baseUrl, quality, thumbnailOnly) {
+      return Promise.resolve().then(() => (thumbnailOnly === true
+        ? { thumbnail: VideoDownloader.parseThumbnail(text, baseUrl) }
+        : VideoDownloader.parseVideoPage(text, baseUrl, quality)));
+    },
+    runTask(work) { return Promise.resolve().then(work); },
+    downloads() { return browser.downloads; },
+    searchAllDownloads(query) { return browser.downloads.search(query); },
+    async privateSessionOpen() {
+      return (await browser.windows.getAll()).some((window) => window.incognito === true);
+    },
+    onPrivateSessionEnd(handler) {
+      if (!browser.windows?.onRemoved?.addListener) return;
+      // The original window listener: clear private leftovers only after the
+      // last private window closed.
+      browser.windows.onRemoved.addListener(() => {
+        void Promise.resolve()
+          .then(() => browser.windows.getAll())
+          .then((windows) => {
+            if (!windows.some((window) => window.incognito === true)) return handler();
+          })
+          .catch(report);
+      });
+    },
+    onAlarmWake() { /* No scheduled wake-ups outside Chrome. */ },
+    setCommandDispatcher() { },
+    setDownloadEventHandler() { },
+  };
+})();
+
 function emptyState(incognito) {
   return {
     schemaVersion: 3, revision: 0, batchId: crypto.randomUUID(), incognito,
@@ -174,7 +225,7 @@ function inspectDownload(context, item, download) {
     if (download?.paused !== true) delete item.resumeError;
   }
   if (download) sampleProgress(item, download);
-  if (!download) fail(context, item, 'Download no longer exists in Firefox. Retry this file.');
+  if (!download) fail(context, item, platform.messages.downloadMissing);
   else if (download.state === 'complete') {
     if (VideoDownloader.isVideoResponse(download.mime)) {
       item.history ??= [];
@@ -343,8 +394,9 @@ async function reconcileUncertain(context) {
     activeState(item) && !Number.isInteger(item.downloadId) && item.startedAt);
   if (!uncertain.length) return false;
   if (context.listUnresolved) return false;
+  const dl = platform.downloads(context.incognito);
   let recent;
-  try { recent = await browser.downloads.search({}); }
+  try { recent = await dl.search({}); }
   catch (error) { report(error); return false; }
   const claimed = new Set(allItems()
     .map(({ item }) => item.downloadId).filter(Number.isInteger));
@@ -363,7 +415,7 @@ async function reconcileUncertain(context) {
       if (item.cancelRequested) { cancelled(item); removeFinished(context, item); changed = true; }
       else if (item.saveAs === true) { continue; }
       else {
-        fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+        fail(context, item, platform.messages.verifyFailed);
         changed = true;
       }
       continue;
@@ -383,7 +435,7 @@ async function reconcileUncertain(context) {
       else {
         // No unique verified transfer: never adopt an ambiguous same-URL
         // candidate and never launch a duplicate automatically.
-        fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+        fail(context, item, platform.messages.verifyFailed);
         changed = true;
       }
     }
@@ -401,7 +453,8 @@ async function refreshProgress(context) {
   let transitioned = false;
   let changed = false;
   let recent = null;
-  try { recent = await browser.downloads.search({}); }
+  const dl = platform.downloads(context.incognito);
+  try { recent = await dl.search({}); }
   catch (error) { report(error); recent = null; }
   const claimed = new Set(allItems()
     .map(({ item }) => item.downloadId).filter(Number.isInteger));
@@ -411,7 +464,7 @@ async function refreshProgress(context) {
     try {
       const hadIdentity = hasDownloadIdentity(item);
       const prevStart = item.downloadIdentity?.startTime;
-      const [download] = await browser.downloads.search({ id: item.downloadId });
+      const [download] = await dl.search({ id: item.downloadId });
       if (isVerifiedOrUpgraded(context, item, download, claimed)) {
         if (!hadIdentity) changed = true;
         else if (item.downloadIdentity?.startTime !== prevStart) changed = true;
@@ -429,11 +482,11 @@ async function refreshProgress(context) {
           inspectDownload(context, item, verified);
         } else if (!hasDownloadIdentity(item)) {
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
-          else if (item.saveAs !== true) fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else if (item.saveAs !== true) fail(context, item, platform.messages.verifyFailed);
           // A Save As row without identity waits for its delayed onCreated.
         } else {
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
-          else fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else fail(context, item, platform.messages.verifyFailed);
         }
         changed = true;
       }
@@ -507,6 +560,7 @@ function applyLegacySplit(legacy) {
 async function reconcileStartupActive() {
   for (const context of contexts) {
     if (context.listUnresolved) continue;
+    const dl = platform.downloads(context.incognito);
     const active = context.state.items.filter((item) => activeState(item));
     const claimed = new Set();
     const unverified = [];
@@ -514,7 +568,7 @@ async function reconcileStartupActive() {
       try {
         let download;
         if (Number.isInteger(item.downloadId)) {
-          try { [download] = (await browser.downloads.search({ id: item.downloadId })) || []; }
+          try { [download] = (await dl.search({ id: item.downloadId })) || []; }
           catch (error) { report(error); }
         }
         if (!isVerifiedOrUpgraded(context, item, download, claimed)) {
@@ -550,11 +604,13 @@ async function reconcileStartupActive() {
           // for its delayed onCreated instead of failing on any time window.
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
           else if (item.saveAs === true) { /* wait for delayed Save As completion */ }
-          else fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else fail(context, item, platform.messages.verifyFailed);
           continue;
         }
         if (!recent && !recentFailed) {
-          try { recent = await browser.downloads.search({}); }
+          // Startup reconciliation spans both sessions, so it merges the
+          // normal and private download lists before fingerprint matching.
+          try { recent = await platform.searchAllDownloads({}); }
           catch (error) { recentFailed = true; report(error); }
         }
         if (recentFailed) {
@@ -581,7 +637,7 @@ async function reconcileStartupActive() {
           // launch nothing. A requested cancel completes without touching
           // Firefox so an unrelated same-URL transfer keeps running.
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
-          else fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else fail(context, item, platform.messages.verifyFailed);
         }
       } catch (error) { report(error); }
     }
@@ -599,7 +655,7 @@ async function loadAll() {
     for (const read of reads) if (!read.ok) report(read.error);
     return;
   }
-  const privateOpen = (await browser.windows.getAll()).some((window) => window.incognito);
+  const privateOpen = await platform.privateSessionOpen();
   const [normalRead, privateRead, normalDraftRead, privateDraftRead] = reads;
   const legacy = normalRead.value;
   for (const [context, read] of [[contexts[0], normalRead], [contexts[1], privateRead]]) {
@@ -730,7 +786,13 @@ function bodyTextWithAbort(response, signal) {
   });
 }
 
-async function readPage(context, item, options) {
+// Chrome keeps the service worker alive for the whole bounded page operation
+// (fetch, backoff retries, parsing) and stays idle without a keep-alive after.
+function readPage(context, item, options) {
+  return platform.runTask(() => readPageDirect(context, item, options));
+}
+
+async function readPageDirect(context, item, options) {
   await ensureHostPermission();
   const quality = VideoDownloader.normalizeQualityOptions(options ?? { maxHeight: item.maxHeight, preferredCodec: item.preferredCodec });
   if (!item.qualityLookup && item.qualityHeight != null) quality.exactHeight = item.qualityHeight;
@@ -804,8 +866,7 @@ async function readPage(context, item, options) {
       throw new Error('Page request timed out or was cancelled. Retry this file.');
     }
     try {
-      if (options?.thumbnailOnly) return { thumbnail: VideoDownloader.parseThumbnail(text, response.url || item.pageUrl) };
-      return VideoDownloader.parseVideoPage(text, response.url || item.pageUrl, quality);
+      return await platform.parsePage(text, response.url || item.pageUrl, quality, options?.thumbnailOnly);
     }
     catch (error) {
       if (context.incognito && /^No download links found/.test(error.message)) {
@@ -849,13 +910,14 @@ async function findOne(context, item) {
 
 async function checkDownloadSession(incognito) {
   if (!incognito) return;
-  if (!await browser.extension.isAllowedIncognitoAccess()) throw new Error("Allow this extension to run in private windows in Firefox's Add-ons Manager, then retry.");
-  if (!(await browser.windows.getAll()).some((window) => window.incognito)) throw new Error('Keep a private Firefox window open while downloading.');
+  if (!await browser.extension.isAllowedIncognitoAccess()) throw new Error(platform.messages.privateAccess);
+  if (!await platform.privateSessionOpen()) throw new Error(platform.messages.privateWindow);
 }
 
 async function cancelRunning(context, item) {
+  const dl = platform.downloads(context.incognito);
   let before;
-  try { [before] = await browser.downloads.search({ id: item.downloadId }); }
+  try { [before] = await dl.search({ id: item.downloadId }); }
   catch (error) { report(error); return; }
   {
     const claimedForUpgrade = new Set(allItems()
@@ -868,7 +930,7 @@ async function cancelRunning(context, item) {
       delete item.downloadId;
       progressSamples.delete(staleId);
       let recent = null;
-      try { recent = await browser.downloads.search({}); }
+      try { recent = await dl.search({}); }
       catch (error) { report(error); }
       const claimed = new Set(allItems()
         .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
@@ -885,10 +947,10 @@ async function cancelRunning(context, item) {
   }
   if (!before || (before.state !== 'in_progress' && before.paused !== true)) { inspectDownload(context, item, before); return; }
   const verifiedId = item.downloadId;
-  try { await browser.downloads.cancel(verifiedId); }
+  try { await dl.cancel(verifiedId); }
   catch (error) {
     let latest;
-    try { [latest] = await browser.downloads.search({ id: verifiedId }); }
+    try { [latest] = await dl.search({ id: verifiedId }); }
     catch (searchError) { report(searchError); }
     if (latest && !isVerifiedDownload(context, item, latest) && !isResumedDownload(context, item, latest)) {
       cancelled(item); removeFinished(context, item);
@@ -899,7 +961,7 @@ async function cancelRunning(context, item) {
     throw new Error(`Could not cancel this download: ${error.message}`);
   }
   let after;
-  try { [after] = await browser.downloads.search({ id: verifiedId }); }
+  try { [after] = await dl.search({ id: verifiedId }); }
   catch (error) { report(error); return; }
   if (after && !isVerifiedDownload(context, item, after) && !isResumedDownload(context, item, after)) {
     cancelled(item); removeFinished(context, item);
@@ -925,6 +987,7 @@ async function cancelItem(context, item, remove = false) {
 async function startDownload(context, item) {
   const attempt = item.attempt;
   const live = () => owned(context, item) && item.attempt === attempt && activeState(item);
+  const dl = platform.downloads(context.incognito);
   let pending;
   try {
     await checkDownloadSession(context.incognito);
@@ -982,15 +1045,17 @@ async function startDownload(context, item) {
     }
     pending = { context, item, attempt };
     pendingStarts.add(pending);
-    const id = await browser.downloads.download({
+    // A pending Save As dialog can outlive any event, so the bridge request
+    // keeps the worker alive until the dialog settles.
+    const id = await platform.runTask(() => dl.download({
       url: item.url,
       filename: item.saveAs ? `${item.filename}.mp4` : `${SUBFOLDER}/${item.filename}.mp4`,
       conflictAction: 'uniquify', saveAs: item.saveAs, incognito: context.incognito
-    });
+    }));
     await serialize(async () => {
       if (!live()) {
         if (item.cancelRequested || item.removeRequested || !owned(context, item)) {
-          try { await browser.downloads.cancel(id); } catch { /* Already finished or cancelled. */ }
+          try { await dl.cancel(id); } catch { /* Already finished or cancelled. */ }
         }
         return;
       }
@@ -1000,7 +1065,7 @@ async function startDownload(context, item) {
       // recovery validates against this fingerprint, never a URL/time window.
       try {
         let liveRecord = null;
-        try { [liveRecord] = await browser.downloads.search({ id }); } catch { liveRecord = null; }
+        try { [liveRecord] = await dl.search({ id }); } catch { liveRecord = null; }
         const identity = liveRecord ? captureDownloadIdentity(liveRecord) : null;
         if (identity) item.downloadIdentity = identity;
         else delete item.downloadIdentity;
@@ -1010,13 +1075,13 @@ async function startDownload(context, item) {
         if (item.cancelRequested) await cancelRunning(context, item);
         else {
           let download = null;
-          try { [download] = await browser.downloads.search({ id }); } catch (error) { report(error); }
+          try { [download] = await dl.search({ id }); } catch (error) { report(error); }
           // The just-launched ID is verified against the freshly captured
           // identity; a mismatch (should not happen) is never trusted.
           if (download && item.downloadIdentity && !isVerifiedDownload(context, item, download)) {
             delete item.downloadId;
             delete item.downloadIdentity;
-            fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+            fail(context, item, platform.messages.verifyFailed);
           } else {
             if (download) markVerified(item, download);
             inspectDownload(context, item, download);
@@ -1044,14 +1109,25 @@ async function pump() {
   if (contexts.some((context) => context.listUnresolved || context.draftUnresolved)) return;
   const finding = allItems().filter(({ item }) => item.state === 'finding' && !lookups.has(item.id));
   for (const { context, item } of finding.slice(0, Math.max(0, CONCURRENCY - lookups.size))) {
-    lookups.add(item.id); void findOne(context, item).catch(report);
+    lookups.add(item.id); void platform.runTask(() => findOne(context, item)).catch(report);
   }
   const active = allItems().filter(({ item }) => activeState(item));
   const orphans = [...pendingStarts].filter(({ context, item, attempt }) => !owned(context, item) || item.attempt !== attempt || !activeState(item));
   const queued = allItems().filter(({ item }) => item.state === 'queued').sort((a, b) => a.item.queuedAt - b.item.queuedAt);
+  if (!queued.length) return;
+  let unclaimedTransfers = 0;
+  if (platform.isChrome) {
+    // A worker can stop after Chrome starts a transfer but before its exact
+    // identity is saved. Keep strict row verification, while reserving that
+    // native transfer's slot until it finishes or the user cancels it.
+    const claimedIds = new Set([...active, ...orphans].map(({ item }) => item.downloadId).filter(Number.isInteger));
+    const transfers = await platform.searchAllDownloads({});
+    unclaimedTransfers = transfers.filter((download) => download.byExtensionId === browser.runtime.id &&
+      (download.state === 'in_progress' || download.paused === true) && !claimedIds.has(download.id)).length;
+  }
   const limit = active.some(({ item }) => item.saveAs) || orphans.some(({ item }) => item.saveAs) || queued[0]?.item.saveAs
     ? 1 : VideoDownloader.normalizeConcurrency(contexts[0].state.concurrency);
-  const slots = Math.max(0, limit - active.length - orphans.length);
+  const slots = Math.max(0, limit - active.length - orphans.length - unclaimedTransfers);
   const starting = [];
   for (const entry of queued) {
     if (starting.length >= slots) break;
@@ -1161,6 +1237,7 @@ function historyMatches(context, entry, download) {
 }
 
 async function resolveShowTarget(context, item) {
+  const dl = platform.downloads(context.incognito);
   const entries = (item.history || []).filter((entry) => Number.isInteger(entry.downloadId));
   if (!entries.length) throw new Error('No completed download to show yet.');
   const newestFirst = [...entries].reverse();
@@ -1170,15 +1247,15 @@ async function resolveShowTarget(context, item) {
   let pruned = false;
   for (const entry of candidates) {
     let download;
-    try { [download] = await browser.downloads.search({ id: entry.downloadId }); }
-    catch (error) { report(error); throw new Error('Could not check Firefox downloads. Retry this action.'); }
+    try { [download] = await dl.search({ id: entry.downloadId }); }
+    catch (error) { report(error); throw new Error(platform.messages.checkDownloads); }
     if (historyMatches(context, entry, download)) { target = entry.downloadId; break; }
     if (!activeState(item) && item.downloadId === entry.downloadId) delete item.downloadId;
     delete entry.downloadId;
     pruned = true;
   }
   if (pruned) { try { await persist(context); } catch (error) { report(error); } }
-  if (target === null) throw new Error('This file is no longer listed in Firefox, so it cannot be shown.');
+  if (target === null) throw new Error('This file is no longer listed in your downloads, so it cannot be shown.');
   return target;
 }
 
@@ -1464,23 +1541,24 @@ async function handleMessage(context, message) {
     if (['pause', 'resume', 'show-file'].includes(message.type)) {
       const item = context.state.items.find((entry) => entry.id === message.id && !entry.removeRequested);
       if (!item) throw new Error('This video was removed from the list.');
+      const dl = platform.downloads(context.incognito);
       if (message.type === 'show-file') {
         const target = await resolveShowTarget(context, item);
         if (!Number.isInteger(target)) throw new Error('No completed download to show yet.');
-        if (typeof browser.downloads.show !== 'function') throw new Error('Showing files is not supported in this Firefox version.');
-        await browser.downloads.show(target);
+        if (typeof dl.show !== 'function') throw new Error(platform.messages.showUnsupported);
+        await dl.show(target);
         return snapshot(context);
       }
       if (message.type === 'pause') {
         if (item.state !== 'downloading') throw new Error('Only downloading files can be paused.');
         if (item.paused) return snapshot(context);
         if (!Number.isInteger(item.downloadId)) throw new Error('This download has not started yet.');
-        if (typeof browser.downloads.pause !== 'function') throw new Error('Pausing downloads is not supported in this Firefox version.');
+        if (typeof dl.pause !== 'function') throw new Error(platform.messages.pauseUnsupported);
         // Verify the persisted ID still names our transfer; an unverified ID
         // must never pause another transfer.
         let live = null;
-        try { [live] = await browser.downloads.search({ id: item.downloadId }); }
-        catch (error) { report(error); throw new Error('Could not check Firefox downloads. Retry this action.'); }
+        try { [live] = await dl.search({ id: item.downloadId }); }
+        catch (error) { report(error); throw new Error(platform.messages.checkDownloads); }
         {
           const claimedForUpgrade = new Set(allItems()
             .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
@@ -1489,25 +1567,25 @@ async function handleMessage(context, message) {
             delete item.downloadId;
             progressSamples.delete(staleId);
             let recent = null;
-            try { recent = await browser.downloads.search({}); }
-            catch (error) { report(error); throw new Error('Could not check Firefox downloads. Retry this action.'); }
+            try { recent = await dl.search({}); }
+            catch (error) { report(error); throw new Error(platform.messages.checkDownloads); }
             const claimed = new Set(allItems()
               .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
             const verified = findVerifiedCandidate(context, item, recent, claimed);
             if (!verified) {
               if (!hasDownloadIdentity(item)) {
                 if (item.saveAs === true) throw new Error('This download has not started yet.');
-                fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
-              } else fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+                fail(context, item, platform.messages.verifyFailed);
+              } else fail(context, item, platform.messages.verifyFailed);
               try { await persist(context); } catch (persistError) { report(persistError); }
               await pump().catch(report);
-              throw new Error('This download could not be verified in Firefox. Retry this file.');
+              throw new Error(platform.messages.verifyFailed);
             }
             item.downloadId = verified.id;
             try { await persist(context); } catch (persistError) { report(persistError); }
           }
         }
-        await browser.downloads.pause(item.downloadId);
+        await dl.pause(item.downloadId);
         item.paused = true;
         try { await persist(context); } catch (persistError) { report(persistError); }
         return snapshot(context);
@@ -1517,11 +1595,11 @@ async function handleMessage(context, message) {
         if (!item.paused) return snapshot(context);
         if (pendingResumes.has(item.id)) return snapshot(context);
         if (!Number.isInteger(item.downloadId)) throw new Error('This download has not started yet.');
-        if (typeof browser.downloads.resume !== 'function') throw new Error('Resuming downloads is not supported in this Firefox version.');
+        if (typeof dl.resume !== 'function') throw new Error(platform.messages.resumeUnsupported);
         // Verify before resuming; an unverified ID must never resume another transfer.
         let live = null;
-        try { [live] = await browser.downloads.search({ id: item.downloadId }); }
-        catch (error) { report(error); throw new Error('Could not check Firefox downloads. Retry this action.'); }
+        try { [live] = await dl.search({ id: item.downloadId }); }
+        catch (error) { report(error); throw new Error(platform.messages.checkDownloads); }
         {
           const claimedForUpgrade = new Set(allItems()
             .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
@@ -1530,16 +1608,16 @@ async function handleMessage(context, message) {
             delete item.downloadId;
             progressSamples.delete(staleId);
             let recent = null;
-            try { recent = await browser.downloads.search({}); }
-            catch (error) { report(error); throw new Error('Could not check Firefox downloads. Retry this action.'); }
+            try { recent = await dl.search({}); }
+            catch (error) { report(error); throw new Error(platform.messages.checkDownloads); }
             const claimed = new Set(allItems()
               .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
             const verified = findVerifiedCandidate(context, item, recent, claimed);
             if (!verified) {
-              fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+              fail(context, item, platform.messages.verifyFailed);
               try { await persist(context); } catch (persistError) { report(persistError); }
               await pump().catch(report);
-              throw new Error('This download could not be verified in Firefox. Retry this file.');
+              throw new Error(platform.messages.verifyFailed);
             }
             item.downloadId = verified.id;
             try { await persist(context); } catch (persistError) { report(persistError); }
@@ -1552,7 +1630,7 @@ async function handleMessage(context, message) {
         // Firefox returns Download.start()'s promise, which can stay pending
         // for the entire transfer. Never hold the command queue on that promise.
         try {
-          Promise.resolve(browser.downloads.resume(token.downloadId)).then(
+          Promise.resolve(dl.resume(token.downloadId)).then(
             () => finishResume(context, item, token),
             (error) => finishResume(context, item, token, error)
           ).catch(report);
@@ -1563,7 +1641,7 @@ async function handleMessage(context, message) {
         // from the live record. Pre-resume verification already proved this ID
         // is ours, so this refresh never weakens restart checks.
         try {
-          const [resumedLive] = await browser.downloads.search({ id: item.downloadId });
+          const [resumedLive] = await dl.search({ id: item.downloadId });
           const claimed = new Set(allItems().map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
           if (isVerifiedOrUpgraded(context, item, resumedLive, claimed)) {
             inspectDownload(context, item, resumedLive);
@@ -1711,7 +1789,7 @@ function finishResume(context, item, token, error) {
     delete item.resuming;
     if (error) item.resumeError = `Resume failed: ${error.message || error}. Try again.`;
     try {
-      const [live] = await browser.downloads.search({ id: token.downloadId });
+      const [live] = await platform.downloads(context.incognito).search({ id: token.downloadId });
       const claimed = new Set(allItems().map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
       if (isVerifiedOrUpgraded(context, item, live, claimed)) inspectDownload(context, item, live);
     } catch (searchError) { report(searchError); }
@@ -1751,16 +1829,22 @@ async function requestThumbnail(message, sender) {
 }
 
 const initialized = restore().catch((error) => { report(error); });
-browser.runtime.onMessage.addListener((message, sender) => {
+
+// Synchronous sender gate, then a Promise for the reply. Registered natively
+// for Firefox and through the platform dispatcher for the Chrome bridge,
+// which synthesizes a validated app sender (including tab.incognito).
+function dispatchMessage(message, sender) {
   if (sender.id !== browser.runtime.id || sender.url?.split('#')[0] !== browser.runtime.getURL('app.html')) return;
   const response = message.type === 'thumbnail' ? requestThumbnail(message, sender)
     : serialize(async () => handleMessage(await senderContext(message, sender), message));
   return response.then(
     (value) => ({ ok: true, state: value }), (error) => ({ ok: false, error: error.message }));
-});
+}
+browser.runtime.onMessage.addListener(dispatchMessage);
+platform.setCommandDispatcher(dispatchMessage);
 
-browser.downloads.onCreated.addListener((download) => {
-  void serialize(async () => {
+function handleDownloadCreated(download) {
+  return serialize(async () => {
     if (download.byExtensionId !== browser.runtime.id) return;
     const claimed = new Set(allItems()
       .map(({ item }) => item.downloadId).filter(Number.isInteger));
@@ -1797,14 +1881,19 @@ browser.downloads.onCreated.addListener((download) => {
     try { await persist(context); } catch (persistError) { report(persistError); }
     await pump().catch(report);
   }).catch(report);
-});
-browser.downloads.onChanged.addListener((delta) => {
-  void serialize(async () => {
+}
+
+function handleDownloadChanged(delta) {
+  return serialize(async () => {
     const owner = allItems().find(({ item }) => activeState(item) && item.downloadId === delta.id);
-    if (!owner) return;
+    if (!owner) {
+      if (platform.isChrome && delta.state) await pump().catch(report);
+      return;
+    }
     const { context, item } = owner;
+    const dl = platform.downloads(context.incognito);
     let download;
-    try { [download] = await browser.downloads.search({ id: delta.id }); }
+    try { [download] = await dl.search({ id: delta.id }); }
     catch (error) { report(error); return; }
     {
       const claimedForUpgrade = new Set(allItems()
@@ -1817,13 +1906,13 @@ browser.downloads.onChanged.addListener((delta) => {
         progressSamples.delete(staleId);
         if (!hasDownloadIdentity(item)) {
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
-          else if (item.saveAs !== true) fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else if (item.saveAs !== true) fail(context, item, platform.messages.verifyFailed);
           try { await persist(context); } catch (persistError) { report(persistError); }
           await pump().catch(report);
           return;
         }
         let recent = null;
-        try { recent = await browser.downloads.search({}); }
+        try { recent = await dl.search({}); }
         catch (error) { report(error); return; }
         const claimed = new Set(allItems()
           .map(({ item: entry }) => entry.downloadId).filter(Number.isInteger));
@@ -1836,7 +1925,7 @@ browser.downloads.onChanged.addListener((delta) => {
           }
         } else {
           if (item.cancelRequested) { cancelled(item); removeFinished(context, item); }
-          else fail(context, item, 'Previous download could not be verified in Firefox. Retry this file.');
+          else fail(context, item, platform.messages.verifyFailed);
         }
         try { await persist(context); } catch (persistError) { report(persistError); }
         await pump().catch(report);
@@ -1847,18 +1936,22 @@ browser.downloads.onChanged.addListener((delta) => {
     try { await persist(context); } catch (persistError) { report(persistError); }
     await pump().catch(report);
   }).catch(report);
-});
-browser.downloads.onErased.addListener((id) => {
-  void serialize(async () => {
+}
+
+function handleDownloadErased(id) {
+  return serialize(async () => {
     const owner = allItems().find(({ item }) => activeState(item) && item.downloadId === id);
-    if (!owner) return;
+    if (!owner) {
+      if (platform.isChrome) await pump().catch(report);
+      return;
+    }
     const { context, item } = owner;
     // Failing our own row never harms another transfer, but a stale ID that
     // now names an unrelated download must not mask a verified transfer that
     // still exists under a new ID. Check for a verified transfer first.
     if (hasDownloadIdentity(item)) {
       let recent = null;
-      try { recent = await browser.downloads.search({}); }
+      try { recent = await platform.downloads(context.incognito).search({}); }
       catch (error) { report(error); }
       if (recent) {
         const claimed = new Set(allItems()
@@ -1874,44 +1967,66 @@ browser.downloads.onErased.addListener((id) => {
         }
       }
     }
-    fail(owner.context, owner.item, 'Download removed from Firefox. Retry this file.');
+    fail(owner.context, owner.item, platform.messages.downloadMissing);
     try { await persist(owner.context); } catch (persistError) { report(persistError); }
     await pump().catch(report);
   }).catch(report);
-});
+}
 
-browser.windows.onRemoved.addListener(() => {
-  void serialize(async () => {
-    let stillPrivate = false;
-    try { stillPrivate = (await browser.windows.getAll()).some((window) => window.incognito); }
-    catch (error) { report(error); return; }
-    if (stillPrivate) return;
-    const context = contexts[1];
-    for (const item of context.state.items) {
-      item.cancelRequested = true; controllers.get(item.id)?.abort();
-      controllers.get(`thumbnail-${item.id}`)?.abort(); pendingResumes.delete(item.id);
-      if (activeState(item) && Number.isInteger(item.downloadId)) {
-        // Verify before cancelling: a stale private ID must never cancel an
-        // unrelated transfer.
-        let live = null;
-        try { [live] = await browser.downloads.search({ id: item.downloadId }); }
-        catch { live = null; }
-        const claimedForUpgrade = new Set();
-        const verified = live ? isVerifiedOrUpgraded(context, item, live, claimedForUpgrade) : false;
-        if (verified) {
-          try { await browser.downloads.cancel(item.downloadId); } catch { /* Closing the window may already have cancelled it. */ }
-        }
+browser.downloads.onCreated.addListener(handleDownloadCreated);
+browser.downloads.onChanged.addListener(handleDownloadChanged);
+browser.downloads.onErased.addListener(handleDownloadErased);
+platform.setDownloadEventHandler('created', handleDownloadCreated);
+platform.setDownloadEventHandler('changed', handleDownloadChanged);
+platform.setDownloadEventHandler('erased', handleDownloadErased);
+
+// The private session is over (or its stale leftovers must be dropped); the
+// caller has already established that none is open, so this never re-checks.
+async function clearPrivateContextNow() {
+  const context = contexts[1];
+  const dl = platform.downloads(true);
+  for (const item of context.state.items) {
+    item.cancelRequested = true; controllers.get(item.id)?.abort();
+    controllers.get(`thumbnail-${item.id}`)?.abort(); pendingResumes.delete(item.id);
+    if (activeState(item) && Number.isInteger(item.downloadId)) {
+      // Verify before cancelling: a stale private ID must never cancel an
+      // unrelated transfer.
+      let live = null;
+      try { [live] = await dl.search({ id: item.downloadId }); }
+      catch { live = null; }
+      const claimedForUpgrade = new Set();
+      const verified = live ? isVerifiedOrUpgraded(context, item, live, claimedForUpgrade) : false;
+      if (verified) {
+        try { await dl.cancel(item.downloadId); } catch { /* Closing the window may already have cancelled it. */ }
       }
-      progressSamples.delete(item.downloadId);
     }
-    context.state = emptyState(true);
-    context.listUnresolved = false;
-    context.draftUnresolved = false;
-    try { await browser.storage.session.remove(PRIVATE_STORAGE_KEY); } catch (error) { report(error); }
-    try { await browser.storage.session.remove(PRIVATE_DRAFT_STORAGE_KEY); } catch (error) { report(error); }
-    await pump().catch(report);
-  }).catch(report);
-});
+    progressSamples.delete(item.downloadId);
+  }
+  context.state = emptyState(true);
+  context.listUnresolved = false;
+  context.draftUnresolved = false;
+  try { await browser.storage.session.remove(PRIVATE_STORAGE_KEY); } catch (error) { report(error); }
+  try { await browser.storage.session.remove(PRIVATE_DRAFT_STORAGE_KEY); } catch (error) { report(error); }
+  await pump().catch(report);
+}
+
+// Serialized so private cleanup never interleaves with commands or events.
+function clearPrivateContext() { return serialize(clearPrivateContextNow); }
+platform.onPrivateSessionEnd(clearPrivateContext);
+
+// Chrome alarm wake-up: recover after the service worker was terminated.
+// Never re-loads state or retries failed transfers; the persisted identity
+// checks re-identify only live transfers, then queued/finding work is pumped.
+platform.onAlarmWake(() => serialize(async () => {
+  await maybeRetryStorageLoad();
+  const privateOpen = await platform.privateSessionOpen();
+  if (!privateOpen) await clearPrivateContextNow();
+  for (const context of contexts) {
+    if (context.incognito && !privateOpen) continue;
+    await refreshProgress(context).catch(report);
+  }
+  await pump().catch(report);
+}));
 browser.action.onClicked.addListener((tab) => {
   void (async () => {
     const url = browser.runtime.getURL('app.html');
